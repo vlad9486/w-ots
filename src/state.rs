@@ -1,6 +1,6 @@
 use core::ops::{Mul, Range};
 use digest::{
-    generic_array::{GenericArray, ArrayLength},
+    generic_array::{GenericArray, ArrayLength, typenum::Unsigned},
     Digest,
 };
 
@@ -38,8 +38,6 @@ where
     A: WOtsPlus,
 {
     pub fn lengths() -> (usize, usize) {
-        use digest::generic_array::typenum::Unsigned;
-
         let m = A::MessageSize::U64 as f64;
         let w = A::WinternitzMinusOne::U64 as f64;
         let l1 = (m * 8.0 / (w + 1.0).log2()).ceil();
@@ -81,8 +79,6 @@ impl Groups {
     where
         A: WOtsPlus,
     {
-        use digest::generic_array::typenum::Unsigned;
-
         let (l1, l2) = State::<A>::lengths();
         Groups(
             (0..(l1 + l2))
@@ -95,8 +91,6 @@ impl Groups {
     where
         A: WOtsPlus,
     {
-        use digest::generic_array::typenum::Unsigned;
-
         Groups(
             self.0
                 .into_iter()
@@ -105,12 +99,42 @@ impl Groups {
         )
     }
 
+    fn checksum<A>(self) -> Self
+    where
+        A: WOtsPlus,
+    {
+        let (l1, l2) = State::<A>::lengths();
+        let sum = self.0[0..l1].iter().fold(
+            0,
+            |sum,
+             &Range {
+                 start: _,
+                 end: ref e,
+             }| { sum + A::WinternitzMinusOne::USIZE - e.clone() },
+        );
+        let (s, _) = (0..l2).fold((self, sum), |(s, sum), _| {
+            (s.add((sum & 0xf) as u8), sum / 0x10)
+        });
+        s
+    }
+
+    fn add(self, v: u8) -> Self {
+        let mut s = self;
+        s.0.push(0..(v as usize));
+        s
+    }
+
     pub fn message<A>(message: GenericArray<u8, A::MessageSize>) -> Self
     where
         A: WOtsPlus,
     {
-        let _ = message;
-        unimplemented!()
+        match A::WinternitzMinusOne::USIZE {
+            15 => message
+                .into_iter()
+                .fold(Groups(Vec::new()), |g, x| g.add(x / 0x10).add(x & 0xf))
+                .checksum::<A>(),
+            _ => unimplemented!(),
+        }
     }
 }
 
