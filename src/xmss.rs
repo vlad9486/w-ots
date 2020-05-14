@@ -1,4 +1,4 @@
-use super::state::{WOtsPlus, State, Groups};
+use super::state::{WOtsPlus, State, Message};
 
 use digest::generic_array::GenericArray;
 
@@ -42,7 +42,7 @@ where
 {
     pub fn from_secret(secret_key: &SecretKey<A>) -> Self {
         match secret_key {
-            &SecretKey(ref state) => PublicKey(state * Groups::one::<A>()),
+            &SecretKey(ref state) => PublicKey(state * Message::one()),
         }
     }
 
@@ -69,7 +69,7 @@ where
 {
     pub fn sign(secret_key: &SecretKey<A>, message: GenericArray<u8, A::MessageSize>) -> Self {
         match secret_key {
-            &SecretKey(ref state) => Signature(state * Groups::message::<A>(message)),
+            &SecretKey(ref state) => Signature(state * Message::message(message)),
         }
     }
 
@@ -79,7 +79,7 @@ where
         message: GenericArray<u8, A::MessageSize>,
     ) -> bool {
         let state = match self {
-            &Signature(ref state) => state * Groups::message::<A>(message).inverse::<A>(),
+            &Signature(ref state) => state * Message::message(message).inverse(),
         };
         public_key.0 == state
     }

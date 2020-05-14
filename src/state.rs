@@ -1,4 +1,8 @@
-use core::ops::{Mul, Range};
+use core::{
+    fmt,
+    ops::{Mul, Range},
+    marker::PhantomData,
+};
 use digest::{
     generic_array::{GenericArray, ArrayLength, typenum::Unsigned},
     Digest,
@@ -72,79 +76,130 @@ where
     }
 }
 
-pub struct Groups(Vec<Range<usize>>);
+impl<A> fmt::Debug for State<A>
+where
+    A: WOtsPlus,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct ByteArray<L>(GenericArray<u8, L>)
+        where
+            L: ArrayLength<u8>;
 
-impl Groups {
-    pub fn one<A>() -> Self
+        impl<L> fmt::Debug for ByteArray<L>
+        where
+            L: ArrayLength<u8>,
+        {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", hex::encode(&self.0))
+            }
+        }
+
+        f.debug_list()
+            .entries(self.randomization.iter().cloned().map(ByteArray))
+            .entries(self.data.iter().cloned().map(ByteArray))
+            .finish()
+    }
+}
+
+pub struct Message<A>
+where
+    A: WOtsPlus,
+{
+    ranges: Vec<Range<usize>>,
+    phantom_data: PhantomData<A>,
+}
+
+impl<A> Message<A>
+where
+    A: WOtsPlus,
+{
+    fn zero() -> Self
     where
         A: WOtsPlus,
     {
         let (l1, l2) = State::<A>::lengths();
-        Groups(
-            (0..(l1 + l2))
-                .map(|_| 0..(A::WinternitzMinusOne::USIZE + 1))
-                .collect(),
-        )
+        let mut data = Vec::with_capacity(l1 + l2);
+        data.resize(l1 + l2, 0..0);
+        Message {
+            ranges: data,
+            phantom_data: PhantomData,
+        }
     }
 
-    pub fn inverse<A>(self) -> Self
+    pub fn one() -> Self
     where
         A: WOtsPlus,
     {
-        Groups(
-            self.0
+        let (l1, l2) = State::<A>::lengths();
+        Message {
+            ranges: (0..(l1 + l2))
+                .map(|_| 0..(A::WinternitzMinusOne::USIZE + 1))
+                .collect(),
+            phantom_data: PhantomData,
+        }
+    }
+
+    pub fn inverse(self) -> Self {
+        Message {
+            ranges: self
+                .ranges
                 .into_iter()
                 .map(|Range { start: _, end: e }| e..(A::WinternitzMinusOne::USIZE + 1))
                 .collect(),
-        )
+            phantom_data: PhantomData,
+        }
     }
 
-    fn checksum<A>(self) -> Self
-    where
-        A: WOtsPlus,
-    {
+    fn add(self, v: u8) -> Self {
+        let mut s = self;
+        s.ranges.push(0..(v as usize));
+        s
+    }
+
+    fn add_many(self, buffer: &[u8]) -> Self {
+        match A::WinternitzMinusOne::USIZE {
+            0x0f => buffer
+                .iter()
+                .fold(Message::zero(), |g, &x| g.add(x / 0x10).add(x & 0xf)),
+            0xff => buffer.iter().fold(Message::zero(), |g, &x| g.add(x)),
+            _ => unimplemented!(),
+        }
+    }
+
+    fn checksum(self) -> Self {
+        use core::mem;
+        use byteorder::{ByteOrder, BigEndian};
+
         let (l1, l2) = State::<A>::lengths();
-        let sum = self.0[0..l1].iter().fold(
+
+        // works only if `l2` fit in u64, e.g. 3 * `size of group` <= 8
+        assert!(l2 * A::MessageSize::USIZE / l1 <= mem::size_of::<u64>());
+
+        let sum = self.ranges[0..l1].iter().fold(
             0,
             |sum,
              &Range {
                  start: _,
                  end: ref e,
-             }| { sum + A::WinternitzMinusOne::USIZE - e.clone() },
+             }| { sum + ((A::WinternitzMinusOne::USIZE - e.clone()) as u64) },
         );
-        let (s, _) = (0..l2).fold((self, sum), |(s, sum), _| {
-            (s.add((sum & 0xf) as u8), sum / 0x10)
-        });
-        s
+        let mut buffer = [0; 8];
+        BigEndian::write_u64(&mut buffer, sum);
+        self.add_many(buffer.as_ref())
     }
 
-    fn add(self, v: u8) -> Self {
-        let mut s = self;
-        s.0.push(0..(v as usize));
-        s
-    }
-
-    pub fn message<A>(message: GenericArray<u8, A::MessageSize>) -> Self
-    where
-        A: WOtsPlus,
-    {
-        match A::WinternitzMinusOne::USIZE {
-            15 => message
-                .into_iter()
-                .fold(Groups(Vec::new()), |g, x| g.add(x / 0x10).add(x & 0xf))
-                .checksum::<A>(),
-            _ => unimplemented!(),
-        }
+    pub fn message(message: GenericArray<u8, A::MessageSize>) -> Self {
+        Message::zero().add_many(message.as_ref()).checksum()
     }
 }
 
-impl<A> Mul<Groups> for &State<A>
+impl<A> Mul<Message<A>> for &State<A>
 where
     A: WOtsPlus,
 {
     type Output = State<A>;
 
-    fn mul(self, rhs: Groups) -> State<A> {
+    fn mul(self, rhs: Message<A>) -> State<A> {
         use digest::generic_array::sequence::GenericSequence;
 
         State {
@@ -152,7 +207,7 @@ where
             data: self
                 .data
                 .iter()
-                .zip(rhs.0)
+                .zip(rhs.ranges)
                 .map(|(block, range)| {
                     self.randomization[range]
                         .iter()
