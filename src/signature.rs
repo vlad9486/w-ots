@@ -40,7 +40,7 @@ where
 {
     pub fn from_secret(secret_key: &SecretKey<A>) -> Self {
         match secret_key {
-            &SecretKey(ref state) => PublicKey((state * Message::one()).project()),
+            &SecretKey(ref state) => PublicKey((state * Message::infinity()).project()),
         }
     }
 }

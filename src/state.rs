@@ -125,7 +125,7 @@ where
         }
     }
 
-    pub fn one() -> Self
+    pub fn infinity() -> Self
     where
         A: WOtsPlus,
     {
