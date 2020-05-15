@@ -156,14 +156,23 @@ where
         s
     }
 
-    fn add_many(self, buffer: &[u8]) -> Self {
-        match A::WinternitzMinusOne::USIZE {
+    fn add_many(self, buffer: &[u8], count: usize) -> Self {
+        let Message {
+            ranges: ranges,
+            phantom_data: _,
+        } = match A::WinternitzMinusOne::USIZE {
             0x0f => buffer
                 .iter()
-                .fold(Message::zero(), |g, &x| g.add(x / 0x10).add(x & 0xf)),
-            0xff => buffer.iter().fold(Message::zero(), |g, &x| g.add(x)),
+                .fold(Message::<A>::zero(), |g, &x| g.add(x / 0x10).add(x & 0xf)),
+            0xff => buffer.iter().fold(Message::<A>::zero(), |g, &x| g.add(x)),
             _ => unimplemented!(),
-        }
+        };
+
+        assert!(ranges.len() >= count);
+        let base = ranges.len() - count;
+        let mut s = self;
+        s.ranges.extend_from_slice(&ranges[base..]);
+        s
     }
 
     fn checksum(self) -> Self {
@@ -185,11 +194,12 @@ where
         );
         let mut buffer = [0; 8];
         BigEndian::write_u64(&mut buffer, sum);
-        self.add_many(buffer.as_ref())
+        self.add_many(buffer.as_ref(), l2)
     }
 
     pub fn message(message: GenericArray<u8, A::MessageSize>) -> Self {
-        Message::zero().add_many(message.as_ref()).checksum()
+        let (l1, _) = State::<A>::lengths();
+        Message::zero().add_many(message.as_ref(), l1).checksum()
     }
 }
 
