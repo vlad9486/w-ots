@@ -32,7 +32,7 @@ where
 }
 
 #[derive(Clone)]
-pub struct PublicKey<A>(State<A>)
+pub struct PublicKey<A>(Vec<GenericArray<u8, A::BlockLength>>)
 where
     A: WOtsPlus;
 
@@ -42,18 +42,8 @@ where
 {
     pub fn from_secret(secret_key: &SecretKey<A>) -> Self {
         match secret_key {
-            &SecretKey(ref state) => PublicKey(state * Message::one()),
+            &SecretKey(ref state) => PublicKey((state * Message::one()).project()),
         }
-    }
-
-    pub fn randomization(
-        &self,
-    ) -> &GenericArray<GenericArray<u8, A::BlockLength>, A::WinternitzMinusOne> {
-        &self.0.randomization()
-    }
-
-    pub fn data(&self) -> &[GenericArray<u8, A::BlockLength>] {
-        self.0.data()
     }
 }
 
@@ -81,7 +71,7 @@ where
         let state = match self {
             &Signature(ref state) => state * Message::message(message).inverse(),
         };
-        public_key.0 == state
+        public_key.0 == state.project()
     }
 
     pub fn randomization(
