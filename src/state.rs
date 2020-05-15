@@ -113,13 +113,12 @@ impl<A> Message<A>
 where
     A: WOtsPlus,
 {
-    fn zero() -> Self
+    fn empty() -> Self
     where
         A: WOtsPlus,
     {
         let (l1, l2) = State::<A>::lengths();
-        let mut data = Vec::with_capacity(l1 + l2);
-        data.resize(l1 + l2, 0..0);
+        let data = Vec::with_capacity(l1 + l2);
         Message {
             ranges: data,
             phantom_data: PhantomData,
@@ -163,8 +162,8 @@ where
         } = match A::WinternitzMinusOne::USIZE {
             0x0f => buffer
                 .iter()
-                .fold(Message::<A>::zero(), |g, &x| g.add(x / 0x10).add(x & 0xf)),
-            0xff => buffer.iter().fold(Message::<A>::zero(), |g, &x| g.add(x)),
+                .fold(Message::<A>::empty(), |g, &x| g.add(x / 0x10).add(x & 0xf)),
+            0xff => buffer.iter().fold(Message::<A>::empty(), |g, &x| g.add(x)),
             _ => unimplemented!(),
         };
 
@@ -199,7 +198,7 @@ where
 
     pub fn message(message: GenericArray<u8, A::MessageSize>) -> Self {
         let (l1, _) = State::<A>::lengths();
-        Message::zero().add_many(message.as_ref(), l1).checksum()
+        Message::empty().add_many(message.as_ref(), l1).checksum()
     }
 }
 
